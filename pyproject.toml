@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-status-light"
+version = "0.1.0"
+description = "Drive a USB serial tower light from AI agent lifecycle events."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Alec-9527"}]
+keywords = ["agent", "status-light", "serial", "tower-light", "hermes"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+]
+
+[project.scripts]
+agent-status-light = "agent_status_light.lamp:main"
+agent-status-light-log-monitor = "agent_status_light.log_monitor:main"
+
+[tool.setuptools]
+packages = ["agent_status_light"]

@@ -1,0 +1,22 @@
+hooks:
+  pre_llm_call:
+    - command: /Users/YOUR_USER/bin/agent-status-light
+      timeout: 3
+  pre_tool_call:
+    - command: /Users/YOUR_USER/bin/agent-status-light
+      timeout: 3
+  pre_approval_request:
+    - command: /Users/YOUR_USER/bin/agent-status-light
+      timeout: 3
+  post_approval_response:
+    - command: /Users/YOUR_USER/bin/agent-status-light
+      timeout: 3
+  transform_llm_output:
+    - command: /Users/YOUR_USER/bin/agent-status-light
+      timeout: 3
+  on_session_start:
+    - command: /Users/YOUR_USER/bin/agent-status-light
+      timeout: 3
+  on_session_end:
+    - command: /Users/YOUR_USER/bin/agent-status-light
+      timeout: 3

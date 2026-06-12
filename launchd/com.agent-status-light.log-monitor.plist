@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.agent-status-light.log-monitor</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/bin/agent-status-light-log-monitor</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>__HOME__/.agent-status-light/logs/log-monitor.launchd.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>__HOME__/.agent-status-light/logs/log-monitor.launchd.err.log</string>
+
+  <key>WorkingDirectory</key>
+  <string>__HOME__</string>
+</dict>
+</plist>

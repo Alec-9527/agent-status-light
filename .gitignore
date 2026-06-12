@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.DS_Store
+.vscode/.ropeproject/
+dist/
+build/
+*.egg-info/
+.env
+.agent-status-light/
