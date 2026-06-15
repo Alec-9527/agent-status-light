@@ -4,7 +4,7 @@
 >
 > 🔴 Red = needs you · 🟡 Yellow = working · 🟢 Green = done
 
-A $3～4 USB tower light that mirrors your [Hermes Agent](https://github.com/NousResearch/hermes-agent) in real time — approval dialogs, tool calls, task completion, all visible at a glance without looking at the screen.
+A $4 USB tower light that mirrors your [Hermes Agent](https://github.com/NousResearch/hermes-agent) in real time — approval dialogs, tool calls, task completion, all visible at a glance without looking at the screen.
 
 <p align="center">
   <img src="assets/yellow.jpg" width="32%" alt="Yellow — Hermes is working">
@@ -17,7 +17,7 @@ A $3～4 USB tower light that mirrors your [Hermes Agent](https://github.com/Nou
 
 **One command.** Not "edit config, compile, wire GPIO pins." Just `curl | bash`, restart Hermes, done.
 
-**$3～4 hardware.** A mass-produced industrial alarm light off AliExpress. No 3D printing, no soldering, no Raspberry Pi. USB plug-and-play.
+**$4 hardware.** A mass-produced industrial alarm light off AliExpress. No 3D printing, no soldering, no Raspberry Pi. USB plug-and-play.
 
 **Physical presence.** Your AI is no longer a black terminal window. It has a light on your desk. You know it's waiting for you from across the room.
 
@@ -69,7 +69,7 @@ Re-run `./setup.sh`. Also works with Modbus, HTTP, GPIO — replace `send_frame(
 
 ## Hardware
 
-Search "USB 3-color alarm light" (CH341 chip). $3～4 on AliExpress.
+Search "USB 3-color alarm light" (CH341 chip). ~$4 on AliExpress.
 
 <p align="center">
   <img src="assets/purchase.jpg" width="60%" alt="¥13.80 on 淘宝">
