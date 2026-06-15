@@ -1,4 +1,4 @@
-# 🚦 Agent Status Light
+# 🚦 Hermes Status Light
 
 > **Know what your Hermes Agent is doing — at a glance.**
 >
