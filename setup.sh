@@ -2,10 +2,22 @@
 set -euo pipefail
 # ──────────────────────────────────────────────────────────────────────
 # Agent Status Light — 一键安装
-# 用法: ./setup.sh
+# 用法: ./setup.sh  或  curl .../setup.sh | bash
 # ──────────────────────────────────────────────────────────────────────
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Resolve script directory (works for both cloned repo and curl pipe)
+if [ -n "${BASH_SOURCE:-}" ] && [ "${BASH_SOURCE}" != "bash" ] && [ -f "${BASH_SOURCE}" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE}")" && pwd)"
+else
+    # Running from curl pipe — clone the repo
+    REPO_DIR="$HOME/agent-status-light"
+    if [ ! -d "$REPO_DIR" ]; then
+        echo "📦 下载项目..."
+        git clone https://github.com/Alec-9527/agent-status-light.git "$REPO_DIR"
+    fi
+    SCRIPT_DIR="$REPO_DIR"
+fi
+
 HERMES_SRC="$HOME/.hermes/hermes-agent/tools"
 HERMES_CONFIG="$HOME/.hermes/config.yaml"
 
