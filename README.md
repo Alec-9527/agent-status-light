@@ -6,6 +6,11 @@
 
 A $3 USB tower light that mirrors your [Hermes Agent](https://github.com/NousResearch/hermes-agent) in real time — approval dialogs, tool calls, task completion, all visible at a glance without looking at the screen.
 
+<p align="center">
+  <img src="assets/yellow.jpg" width="32%" alt="Yellow — Hermes is working">
+  <img src="assets/green.jpg" width="32%" alt="Green — task complete">
+</p>
+
 <br>
 
 ## Why this project?
@@ -30,7 +35,7 @@ Restart Hermes. That's it.
 
 ## What the light means
 
-| Hermes is... | Light | 
+| Hermes is... | Light |
 |-------------|:-----:|
 | Asking for command approval | 🔴 flashing |
 | Asking a clarifying question | 🔴 flashing |
@@ -65,6 +70,10 @@ Re-run `./setup.sh`. Also works with Modbus, HTTP, GPIO — replace `send_frame(
 ## Hardware
 
 Search "USB 3-color alarm light" (CH341 chip). ~$3 on AliExpress.
+
+<p align="center">
+  <img src="assets/purchase.jpg" width="60%" alt="¥13.80 on 淘宝">
+</p>
 
 <br>
 
