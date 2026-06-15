@@ -1,0 +1,86 @@
+# Hermes Agent approval.py patches
+# Apply with: patch -p0 < approval-lamp.patch
+# (run from hermes-agent source root: ~/.hermes/hermes-agent/)
+#
+# These patches add direct lamp triggers at every approval point,
+# bypassing the hook system's known reliability issues.
+
+--- a/tools/approval.py
++++ b/tools/approval.py
+@@ -75,6 +75,32 @@
+         # means the dispatch layer itself failed. Log and move on -- approval
+         # flow is safety-critical, plugin observability is not.
+         logger.debug("Approval hook %s dispatch failed: %s", hook_name, exc)
++
++    # Direct lamp trigger — bypasses the plugin/hook system which has known
++    # reliability issues with approval events.  Runs fire-and-forget so a
++    # slow or dead lamp daemon never delays the approval dialog.
++    try:
++        import subprocess as _sp
++        _sp.Popen(
++            ["/Users/chen/bin/hermes_lamp.py", hook_name],
++            stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
++            start_new_session=True,
++        )
++    except Exception:
++        pass
++
++
++def _trigger_post_approval_lamp() -> None:
++    """Fire-and-forget lamp trigger after user responds to approval."""
++    try:
++        import subprocess as _sp
++        _sp.Popen(
++            ["/Users/chen/bin/hermes_lamp.py", "post_approval_response"],
++            stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
++            start_new_session=True,
++        )
++    except Exception:
++        pass
+ 
+ 
+@@ -912,6 +938,20 @@
+     if timeout_seconds is None:
+         timeout_seconds = _get_approval_timeout()
+ 
++    # Lamp trigger — signal "waiting for user" before blocking on input.
++    # Placed here (inside prompt_dangerous_approval) so EVERY approval path
++    # is covered: check_dangerous_command, check_all_command_guards,
++    # check_execute_code_guard, and any future callers.
++    try:
++        import subprocess as _sp
++        _sp.Popen(
++            ["/Users/chen/bin/hermes_lamp.py", "pre_approval_request"],
++            stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
++            start_new_session=True,
++        )
++    except Exception:
++        pass
++
+     if approval_callback is not None:
+         try:
+-            return approval_callback(command, description,
+-                                     allow_permanent=allow_permanent)
++            result = approval_callback(command, description,
++                                       allow_permanent=allow_permanent)
++            _trigger_post_approval_lamp()
++            return result
+         except Exception as e:
+             logger.error("Approval callback failed: %s", e, exc_info=True)
++            _trigger_post_approval_lamp()
+             return "deny"
+ 
+@@ -1009,12 +1049,15 @@
+ 
+             if thread.is_alive():
+                 print("\n" + t("approval.timeout"))
++                _trigger_post_approval_lamp()
+                 return "deny"
+ 
++            _trigger_post_approval_lamp()
+             choice = result["choice"]
+ 
+     except (EOFError, KeyboardInterrupt):
+         print("\n" + t("approval.cancelled"))
++        _trigger_post_approval_lamp()
+         return "deny"

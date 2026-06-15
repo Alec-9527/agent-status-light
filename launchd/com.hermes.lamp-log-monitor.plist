@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hermes.lamp-log-monitor</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/chen/bin/hermes_lamp_log_monitor.py</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/chen/.hermes/logs/lamp-log-monitor.launchd.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/chen/.hermes/logs/lamp-log-monitor.launchd.err.log</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/chen</string>
+</dict>
+</plist>
