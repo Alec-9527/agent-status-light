@@ -2,9 +2,16 @@
 """Non-blocking control for the USB serial tower light used by Hermes hooks.
 
 Normal invocation (used by Hermes hooks) is intentionally fast: it writes the
-requested mode to ~/.hermes/lamp-request.json and ensures a background daemon is
+requested mode to ~/.hermes/lamp-state.json and ensures a background daemon is
 running. The daemon owns the slow serial writes so Hermes is never delayed by
 USB/driver latency.
+
+Architecture:
+  Multiple signal sources each write their state to lamp-state.json[source].
+  The daemon aggregates all sources and picks the highest-priority mode:
+    red_flash > done > yellow > green > off
+  This prevents yellow hooks from overwriting red approval signals — a common
+  race condition in single-file "last write wins" designs.
 
 Protocol from 虹明机电 USB 串口报警灯 datasheet:
   frame = A0 + address + opcode + checksum(sum first 3 bytes, low byte)
@@ -23,14 +30,10 @@ from pathlib import Path
 DEFAULT_BAUD = "9600"
 HERMES_DIR = Path.home() / ".hermes"
 STATE_FILE = HERMES_DIR / "lamp-state.json"
-REQUEST_FILE = HERMES_DIR / "lamp-request.json"
 PID_FILE = HERMES_DIR / "lamp-daemon.pid"
 LOG_FILE = HERMES_DIR / "logs" / "lamp-hook.log"
 
 # ── Lamp config file (optional) ───────────────────────────────────────
-# If lamp_config.json exists next to this script, it overrides COMMANDS
-# and timing values.  Users never need to edit this file directly.
-
 _DEFAULT_COMMANDS: dict[str, bytes] = {
     "off":          bytes.fromhex("A0 00 00 A0"),
     "yellow":       bytes.fromhex("A0 01 01 A2"),
@@ -61,17 +64,21 @@ if CONFIG_FILE.exists():
         pass
 
 COMMANDS = _loaded_commands
-
 SEQUENCE_MODES = {"done"}
 POLL_SECONDS = 0.05
+STATE_TTL = 60.0  # stale state entries expire after 60s
 
-CODING_TOOLS = {
-    "write_file",
-    "patch",
-    "terminal",
-    "execute_code",
-    "process",
-    "delegate_task",
+# ── Priority: higher value = wins when multiple sources are active ──
+_MODE_PRIORITY: dict[str | None, int] = {
+    "red_flash": 40,
+    "red":       30,
+    "done":      20,
+    "yellow_flash": 11,
+    "yellow":    10,
+    "green_flash": 6,
+    "green":     5,
+    "off":       0,
+    None:       -1,
 }
 
 
@@ -126,14 +133,6 @@ def send_frame(frame: bytes, *, port: str | None = None) -> bool:
         return False
 
 
-def record_state(mode: str) -> None:
-    try:
-        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        STATE_FILE.write_text(json.dumps({"mode": mode, "ts": time.time()}), encoding="utf-8")
-    except Exception:
-        pass
-
-
 def send_mode_now(mode: str) -> bool:
     if mode == "done":
         ok = send_mode_now("green_flash")
@@ -141,7 +140,6 @@ def send_mode_now(mode: str) -> bool:
         ok = send_mode_now("green") and ok
         time.sleep(DONE_STEADY_SECONDS)
         ok = send_mode_now("off") and ok
-        record_state("done")
         return ok
     frame = COMMANDS.get(mode)
     if frame is None:
@@ -151,7 +149,6 @@ def send_mode_now(mode: str) -> bool:
         send_frame(COMMANDS["off"])
         time.sleep(0.12)
     ok = send_frame(frame)
-    record_state(mode)
     return ok
 
 
@@ -179,7 +176,6 @@ def send_mode_on_open_port(mode: str, f, port: str) -> bool:
         ok = write_frame_to_open_port(f, COMMANDS["off"], port)
         time.sleep(0.12)
     ok = write_frame_to_open_port(f, frame, port) and ok
-    record_state(mode)
     return ok
 
 
@@ -214,89 +210,72 @@ def ensure_daemon() -> None:
         log(f"failed to start daemon: {e}")
 
 
-def enqueue_mode(mode: str) -> bool:
-    if mode not in COMMANDS and mode not in SEQUENCE_MODES:
-        log(f"unknown queued mode: {mode}")
-        return False
+# ── State management (multi-source, priority-aggregated) ──────────────
+
+def _read_state() -> dict[str, dict]:
+    try:
+        if STATE_FILE.exists():
+            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def _write_state(state: dict[str, dict]) -> None:
     try:
         HERMES_DIR.mkdir(parents=True, exist_ok=True)
-        tmp = REQUEST_FILE.with_name(f"{REQUEST_FILE.name}.{os.getpid()}.{time.time_ns()}.tmp")
-        tmp.write_text(json.dumps({"mode": mode, "ts": time.time()}), encoding="utf-8")
-        os.replace(tmp, REQUEST_FILE)
+        tmp = STATE_FILE.with_name(f"{STATE_FILE.name}.{os.getpid()}.{time.time_ns()}.tmp")
+        tmp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, STATE_FILE)
+    except Exception:
+        pass
+
+
+def set_state(source: str, mode: str) -> bool:
+    """Write a signal from *source* into the aggregated state file."""
+    if mode not in COMMANDS and mode not in SEQUENCE_MODES:
+        log(f"unknown mode: {mode}")
+        return False
+    try:
+        state = _read_state()
+        state[source] = {"mode": mode, "ts": time.time()}
+        _write_state(state)
         ensure_daemon()
         return True
     except Exception as e:
-        log(f"enqueue failed: {e}")
+        log(f"set_state failed: {e}")
         return False
 
 
-def read_request() -> dict:
-    try:
-        return json.loads(REQUEST_FILE.read_text(encoding="utf-8")) if REQUEST_FILE.exists() else {}
-    except Exception:
-        return {}
+def _compute_aggregate_mode() -> tuple[str | None, float]:
+    """Return (mode, ts) with the highest priority across all sources.
 
-
-def request_key(req: dict) -> tuple[str | None, float]:
-    return (req.get("mode"), float(req.get("ts", 0) or 0))
-
-
-def sleep_until_changed_or_timeout(active_key: tuple[str | None, float], seconds: float) -> bool:
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        if request_key(read_request()) != active_key:
-            return True
-        time.sleep(POLL_SECONDS)
-    return False
-
-
-def run_done_sequence_on_open_port(f, port: str, active_key: tuple[str | None, float]) -> bool:
-    log(f"starting done sequence: green_flash {DONE_FLASH_SECONDS:g}s -> green {DONE_STEADY_SECONDS:g}s -> off")
-    ok = send_mode_on_open_port("green_flash", f, port)
-    if sleep_until_changed_or_timeout(active_key, DONE_FLASH_SECONDS):
-        log("done sequence interrupted during green_flash")
-        return ok
-    ok = send_mode_on_open_port("green", f, port) and ok
-    if sleep_until_changed_or_timeout(active_key, DONE_STEADY_SECONDS):
-        log("done sequence interrupted during green steady")
-        return ok
-    ok = send_mode_on_open_port("off", f, port) and ok
-    record_state("done")
-    log("done sequence completed")
-    return ok
-
-
-def _should_preserve_red(last_key: tuple[str | None, float] | None) -> bool:
-    """Return True if the daemon should keep showing red despite a yellow/green request.
-
-    When pre_tool_call enqueues red_flash but pre_llm_call immediately
-    overwrites the request with yellow, the daemon must not downgrade.
-    We re-read the request file: if it was written recently (< 0.3s ago)
-    AND the current request is yellow but a red was recently active,
-    we hold.
+    Stale entries (> STATE_TTL) are ignored.
     """
-    if last_key is None:
-        return False
-    last_mode = last_key[0]
-    if last_mode not in ("red", "red_flash"):
-        return False
-    # Check if there's a very recent red request still pending
-    req = read_request()
-    req_mode, req_ts = request_key(req)
-    age = time.time() - req_ts
-    if req_mode in ("red", "red_flash") and age < 0.3:
-        return True
-    # Also preserve if the last mode was red and we're being asked to
-    # switch to yellow very quickly after the red was set
-    last_ts = last_key[1]
-    if time.time() - last_ts < 0.5:
-        return True
-    return False
+    state = _read_state()
+    best_mode: str | None = None
+    best_ts: float = 0.0
+    best_priority: int = -1
+    now = time.time()
+    for source, entry in state.items():
+        if not isinstance(entry, dict):
+            continue
+        mode = entry.get("mode")
+        ts = float(entry.get("ts", 0))
+        if now - ts > STATE_TTL:
+            continue
+        prio = _MODE_PRIORITY.get(mode, -1)
+        if prio > best_priority or (prio == best_priority and ts > best_ts):
+            best_priority = prio
+            best_mode = mode
+            best_ts = ts
+    return (best_mode, best_ts)
 
+
+# ── Daemon ────────────────────────────────────────────────────────────
 
 def daemon_loop() -> int:
     HERMES_DIR.mkdir(parents=True, exist_ok=True)
-    # Single daemon guard. If another live daemon exists, exit quietly.
     if PID_FILE.exists():
         try:
             old = int(PID_FILE.read_text().strip() or "0")
@@ -305,25 +284,18 @@ def daemon_loop() -> int:
         except Exception:
             pass
     PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
-    log(f"daemon started pid={os.getpid()}")
-    last_key: tuple[str, float] | None = None
+    log(f"daemon started pid={os.getpid()} (priority-aggregated)")
+    last_key: tuple[str | None, float] = (None, 0.0)
     port: str | None = None
     serial_f = None
     try:
         while True:
-            req = read_request()
-            mode, ts = request_key(req)
+            mode, ts = _compute_aggregate_mode()
             key = (mode, ts)
-            if (mode in COMMANDS or mode in SEQUENCE_MODES) and key != last_key:
-                # ── Priority guard: don't let yellow/green overwrite red ──
-                # When pre_tool_call sets red but pre_llm_call immediately
-                # overwrites with yellow (same poll interval), the daemon
-                # would miss the red.  Hold red for a grace period.
-                if mode in ("yellow", "green", "off"):
-                    if _should_preserve_red(last_key):
-                        time.sleep(POLL_SECONDS)
-                        continue
+            if key != last_key:
                 last_key = key
+                if mode is None:
+                    mode = "off"
                 try:
                     wanted_port = find_port()
                     if not wanted_port:
@@ -340,7 +312,7 @@ def daemon_loop() -> int:
                             serial_f = open(port, "wb", buffering=0)
                             log(f"opened persistent serial port {port}")
                         if mode == "done":
-                            run_done_sequence_on_open_port(serial_f, port, key)
+                            _run_done_sequence_aggregated(serial_f, port)
                         else:
                             send_mode_on_open_port(mode, serial_f, port)
                 except Exception as e:
@@ -366,55 +338,74 @@ def daemon_loop() -> int:
             pass
 
 
+def _run_done_sequence_aggregated(f, port: str) -> bool:
+    """Run done sequence, checking aggregate state between phases.
+
+    If a higher-priority signal arrives (e.g. new approval), the sequence
+    is interrupted early.
+    """
+    log(f"starting done sequence: green_flash {DONE_FLASH_SECONDS:g}s -> green {DONE_STEADY_SECONDS:g}s -> off")
+    ok = send_mode_on_open_port("green_flash", f, port)
+    if _sleep_until_priority_changes("done", DONE_FLASH_SECONDS):
+        log("done sequence interrupted during green_flash")
+        return ok
+    ok = send_mode_on_open_port("green", f, port) and ok
+    if _sleep_until_priority_changes("done", DONE_STEADY_SECONDS):
+        log("done sequence interrupted during green steady")
+        return ok
+    ok = send_mode_on_open_port("off", f, port) and ok
+    log("done sequence completed")
+    return ok
+
+
+def _sleep_until_priority_changes(current_mode: str, seconds: float) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        agg_mode, _ = _compute_aggregate_mode()
+        if agg_mode != current_mode:
+            return True
+        time.sleep(POLL_SECONDS)
+    return False
+
+
+# ── Hook integration ──────────────────────────────────────────────────
+
 def payload_from_stdin() -> dict:
     try:
         raw = sys.stdin.read()
-        if raw.strip():
-            log(f"hook stdin payload: {raw.strip()}")
         return json.loads(raw) if raw.strip() else {}
-    except Exception as e:
-        log(f"hook stdin parse error: {e}")
+    except Exception:
         return {}
 
 
-def mode_for_hook(payload: dict, fallback: str | None = None) -> str | None:
+def mode_for_hook(payload: dict) -> tuple[str, str] | None:
+    """Return (source_key, lamp_mode) for a hook event, or None."""
     event = payload.get("hook_event_name")
     if event == "pre_approval_request":
-        return "red_flash"
+        return ("hook:approval", "red_flash")
     if event == "post_approval_response":
-        return "yellow"
+        return ("hook:approval", "yellow")
     if event == "pre_llm_call":
-        return "yellow"
+        return ("hook:llm", "yellow")
     if event == "pre_tool_call":
-        will_block = _tool_call_will_require_approval(payload)
-        if will_block:
-            tool_name = payload.get("tool_name", "")
-            log(f"pre_tool_call DETECTED blocking: tool={tool_name}")
-            return "red_flash"
-        return "yellow"
+        if _tool_call_will_require_approval(payload):
+            return ("hook:tool", "red_flash")
+        return ("hook:tool", "yellow")
     if event == "transform_llm_output":
-        return "done"
+        return ("hook:done", "done")
     if event == "on_session_start":
-        return "off"
+        return ("hook:session", "off")
     if event == "on_session_end":
-        return "done"
-    return fallback
+        return ("hook:done", "done")
+    return None
 
 
 def _tool_call_will_require_approval(payload: dict) -> bool:
-    """Detect if a tool call will block waiting for user input.
-
-    Returns True when the tool is about to pause Hermes and wait for the
-    user — approval dialogs, clarify questions, stdin-blocking commands
-    (sudo/ssh), browser confirmations, etc.  The lamp switches to red
-    so the user knows they need to act.
-    """
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input") or {}
 
     if tool_name == "terminal":
         command = tool_input.get("command", "")
-        # ── Hermes approval patterns (dangerous commands, tirith) ──
         approval_patterns = [
             r"\b(bash|sh|zsh|ksh)\s+-[^\s]*c(\s+|$)",
             r"\b(python[23]?|perl|ruby|node)\s+-[ec]\s+",
@@ -434,38 +425,30 @@ def _tool_call_will_require_approval(payload: dict) -> bool:
         for pat in approval_patterns:
             if re.search(pat, command):
                 return True
-
-        # ── Stdin-blocking commands (ask for password, interactive shell) ──
-        stdin_blocking_patterns = [
-            r"\bsudo\b",                         # password prompt
-            r"\bssh\b(?!\s+\S+@\S+\s+\S)",       # ssh without remote command
-            r"\b(su|login)\b",                   # switch user
-            r"\bpasswd\b",                       # change password
-            r"\bgh\s+auth\s+login\b",            # GitHub OAuth login (browser)
+        stdin_blocking = [
+            r"\bsudo\b",
+            r"\bssh\b(?!\s+\S+@\S+\s+\S)",
+            r"\b(su|login)\b",
+            r"\bpasswd\b",
+            r"\bgh\s+auth\s+login\b",
         ]
-        for pat in stdin_blocking_patterns:
+        for pat in stdin_blocking:
             if re.search(pat, command):
                 return True
 
-    if tool_name == "execute_code":
-        # execute_code triggers approval
-        return True
-
-    if tool_name == "clarify":
-        # clarify pauses the agent and waits for user input
-        return True
-
-    if tool_name == "browser":
-        # browser tool may show dialogs or wait for user interaction
+    if tool_name in ("execute_code", "clarify", "browser"):
         return True
 
     return False
 
 
+# ── CLI entry point ───────────────────────────────────────────────────
+
 HOOK_NAME_TO_MODE = {
     "pre_approval_request": "red_flash",
     "post_approval_response": "yellow",
 }
+
 
 def main(argv: list[str]) -> int:
     if len(argv) >= 2 and argv[1] == "--daemon":
@@ -473,12 +456,18 @@ def main(argv: list[str]) -> int:
     if len(argv) >= 3 and argv[1] == "--send-now":
         return 0 if send_mode_now(argv[2]) else 1
     if len(argv) >= 2:
+        # Direct CLI call with hook name or mode: set_state with generic source
         mode = HOOK_NAME_TO_MODE.get(argv[1], argv[1])
+        source = f"direct:{argv[1]}" if argv[1] in HOOK_NAME_TO_MODE else "direct:cli"
+        return 0 if set_state(source, mode) else 1
     else:
-        mode = mode_for_hook(payload_from_stdin())
-    if not mode:
-        return 0
-    return 0 if enqueue_mode(mode) else 1
+        # Hook invocation (stdin JSON): use source-keyed state
+        payload = payload_from_stdin()
+        result = mode_for_hook(payload)
+        if result is None:
+            return 0
+        source, mode = result
+        return 0 if set_state(source, mode) else 1
 
 
 if __name__ == "__main__":
