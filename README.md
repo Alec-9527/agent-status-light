@@ -1,66 +1,45 @@
-# 🚦 Hermes Tower Light — AI 物理状态灯
+# 🚦 Agent Status Light — 给你的 Hermes Agent 装一盏状态灯
 
-> **你的 Hermes Agent 在做什么？看一眼灯就知道。**
+> **AI 在干嘛？看一眼灯就知道。**
 >
-> 🔴 红灯闪烁 = 需要你审批 &nbsp;|&nbsp; 🟡 黄灯常亮 = 正在工作 &nbsp;|&nbsp; 🟢 绿灯 = 任务完成
+> 🔴 红闪 = 等你审批 · 🟡 黄亮 = 干活中 · 🟢 绿亮 = 搞定了
 
-把 Hermes Agent 的运行状态投射到桌面的三色 USB 串口塔灯上，让 AI 的工作进度一目了然。
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) 是 Nous Research 开源的 AI 编程助手。这个项目把它的运行状态投射到桌面的 USB 串口三色塔灯上——审批弹窗、工具调用、任务完成，灯色一目了然。
 
 ---
 
-## 开箱即用
+## 插上就用
 
 ```bash
-git clone https://github.com/Alec-9527/hermes-tower-light.git
-cd hermes-tower-light
-# 修改 hermes_lamp.py 里的串口和命令（见下方），然后：
+git clone https://github.com/Alec-9527/agent-status-light.git
+cd agent-status-light
+# 只改一处：把你灯的串口命令填进去（见下方）
 python3 hermes_lamp.py --daemon
 ```
 
 ---
 
-## 适配你的灯
+## 适配你的灯 —— 只需要改命令
 
-不同厂家的 USB 串口灯协议不同，但原理一样。**只需改两处：**
-
-### 1. 串口路径
-
-```python
-# hermes_lamp.py 第 69-79 行，改成你灯对应的设备名
-patterns = [
-    "/dev/cu.usbserial-*",   # CH341 芯片
-    "/dev/cu.wchusbserial*",  # CH340 芯片
-    "/dev/cu.SLAB_USBtoUART*", # CP210x 芯片
-    "/dev/cu.usbmodem*",       # 通用
-]
-```
-
-或者直接设置环境变量：
-```bash
-export HERMES_LAMP_PORT=/dev/cu.usbserial-1130
-```
-
-### 2. 灯控命令
-
-我用的灯协议是 `帧头 + 地址 + 操作码 + 校验和`，每个颜色一个地址，操作码 01=常亮、02=闪烁：
+不管什么品牌的 USB 串口灯，核心都是一个**地址+操作码**的组合。我的灯协议如下，你换成自己灯的即可：
 
 ```python
 COMMANDS = {
-    #   地址  操作码      含义
-    "off":          bytes.fromhex("A0 00 00 A0"),   # 全灭
-    "yellow":       bytes.fromhex("A0 01 01 A2"),   # 🟡 黄灯常亮（工作中）
-    "yellow_flash": bytes.fromhex("A0 01 02 A3"),   # 🟡 黄灯闪烁
-    "green":        bytes.fromhex("A0 02 01 A3"),   # 🟢 绿灯常亮（完成）
-    "green_flash":  bytes.fromhex("A0 02 02 A4"),   # 🟢 绿灯闪烁
-    "red":          bytes.fromhex("A0 03 01 A4"),   # 🔴 红灯常亮
-    "red_flash":    bytes.fromhex("A0 03 02 A5"),   # 🔴 红灯闪烁（等审批）
+    #  地址 操作码 → 含义
+    "off":          b"\xA0\x00\x00\xA0",   # 00 00 = 全灭
+    "yellow":       b"\xA0\x01\x01\xA2",   # 01 01 = 黄灯常亮
+    "yellow_flash": b"\xA0\x01\x02\xA3",   # 01 02 = 黄灯闪烁
+    "green":        b"\xA0\x02\x01\xA3",   # 02 01 = 绿灯常亮
+    "green_flash":  b"\xA0\x02\x02\xA4",   # 02 02 = 绿灯闪烁
+    "red":          b"\xA0\x03\x01\xA4",   # 03 01 = 红灯常亮
+    "red_flash":    b"\xA0\x03\x02\xA5",   # 03 02 = 红灯闪烁
 }
 ```
 
-**地址编码：** `00`=全灭 `01`=黄 `02`=绿 `03`=红 `04`=蜂鸣器  
-**操作码：** `00`=灭 `01`=常亮 `02`=闪烁  
-
-> 💡 如果你用的是其他协议（Modbus、HTTP、GPIO 等），把 `send_frame()` 函数换成你自己的控制逻辑，外层接口不用动。
+> **地址编码：** `00`=全灭 `01`=黄 `02`=绿 `03`=红  
+> **操作码：** `00`=灭 `01`=常亮 `02`=闪烁  
+> 
+> 💡 如果你用的是 Modbus、HTTP、GPIO 等协议，把 `send_frame()` 换成你的控制逻辑就行，外壳不动。
 
 ---
 
