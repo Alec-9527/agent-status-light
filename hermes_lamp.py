@@ -342,20 +342,20 @@ def mode_for_hook(payload: dict, fallback: str | None = None) -> str | None:
 
 
 def _tool_call_will_require_approval(payload: dict) -> bool:
-    """Detect if a tool call will trigger the approval dialog.
+    """Detect if a tool call will block waiting for user input.
 
-    When the terminal/execute_code tool is about to run a command that
-    Hermes will flag for user approval, we return True so the lamp can
-    switch to red_flash *before* the dialog appears — the shell hook
-    fires synchronously in pre_tool_call, earlier than the
-    pre_approval_request hook which has subprocess/daemon latency.
+    Returns True when the tool is about to pause Hermes and wait for the
+    user — approval dialogs, clarify questions, stdin-blocking commands
+    (sudo/ssh), browser confirmations, etc.  The lamp switches to red
+    so the user knows they need to act.
     """
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input") or {}
 
     if tool_name == "terminal":
         command = tool_input.get("command", "")
-        patterns = [
+        # ── Hermes approval patterns (dangerous commands, tirith) ──
+        approval_patterns = [
             r"\b(bash|sh|zsh|ksh)\s+-[^\s]*c(\s+|$)",
             r"\b(python[23]?|perl|ruby|node)\s+-[ec]\s+",
             r"\b(curl|wget)\b.*\|\s*(?:[/\w]*/)?(?:ba)?sh(?:\s|$|-c)",
@@ -371,17 +371,32 @@ def _tool_call_will_require_approval(payload: dict) -> bool:
             r"\bsystemctl\s+(-[^\s]+\s+)*(stop|restart|disable|mask)\b",
             r"\bhermes\s+gateway\s+(stop|restart)\b",
         ]
-        for pat in patterns:
+        for pat in approval_patterns:
+            if re.search(pat, command):
+                return True
+
+        # ── Stdin-blocking commands (ask for password, interactive shell) ──
+        stdin_blocking_patterns = [
+            r"\bsudo\b",                         # password prompt
+            r"\bssh\b(?!\s+\S+@\S+\s+\S)",       # ssh without remote command
+            r"\b(su|login)\b",                   # switch user
+            r"\bpasswd\b",                       # change password
+            r"\bgh\s+auth\s+login\b",            # GitHub OAuth login (browser)
+        ]
+        for pat in stdin_blocking_patterns:
             if re.search(pat, command):
                 return True
 
     if tool_name == "execute_code":
-        # execute_code triggers approval for destructive patterns
+        # execute_code triggers approval
         return True
 
     if tool_name == "clarify":
-        # clarify pauses the agent and waits for user input — treat as
-        # "needs user attention", same as approval
+        # clarify pauses the agent and waits for user input
+        return True
+
+    if tool_name == "browser":
+        # browser tool may show dialogs or wait for user interaction
         return True
 
     return False
