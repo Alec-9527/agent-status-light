@@ -245,6 +245,34 @@ def run_done_sequence_on_open_port(f, port: str, active_key: tuple[str | None, f
     return ok
 
 
+def _should_preserve_red(last_key: tuple[str | None, float] | None) -> bool:
+    """Return True if the daemon should keep showing red despite a yellow/green request.
+
+    When pre_tool_call enqueues red_flash but pre_llm_call immediately
+    overwrites the request with yellow, the daemon must not downgrade.
+    We re-read the request file: if it was written recently (< 0.3s ago)
+    AND the current request is yellow but a red was recently active,
+    we hold.
+    """
+    if last_key is None:
+        return False
+    last_mode = last_key[0]
+    if last_mode not in ("red", "red_flash"):
+        return False
+    # Check if there's a very recent red request still pending
+    req = read_request()
+    req_mode, req_ts = request_key(req)
+    age = time.time() - req_ts
+    if req_mode in ("red", "red_flash") and age < 0.3:
+        return True
+    # Also preserve if the last mode was red and we're being asked to
+    # switch to yellow very quickly after the red was set
+    last_ts = last_key[1]
+    if time.time() - last_ts < 0.5:
+        return True
+    return False
+
+
 def daemon_loop() -> int:
     HERMES_DIR.mkdir(parents=True, exist_ok=True)
     # Single daemon guard. If another live daemon exists, exit quietly.
@@ -266,6 +294,14 @@ def daemon_loop() -> int:
             mode, ts = request_key(req)
             key = (mode, ts)
             if (mode in COMMANDS or mode in SEQUENCE_MODES) and key != last_key:
+                # ── Priority guard: don't let yellow/green overwrite red ──
+                # When pre_tool_call sets red but pre_llm_call immediately
+                # overwrites with yellow (same poll interval), the daemon
+                # would miss the red.  Hold red for a grace period.
+                if mode in ("yellow", "green", "off"):
+                    if _should_preserve_red(last_key):
+                        time.sleep(POLL_SECONDS)
+                        continue
                 last_key = key
                 try:
                     wanted_port = find_port()
@@ -329,7 +365,10 @@ def mode_for_hook(payload: dict, fallback: str | None = None) -> str | None:
     if event == "pre_llm_call":
         return "yellow"
     if event == "pre_tool_call":
-        if _tool_call_will_require_approval(payload):
+        will_block = _tool_call_will_require_approval(payload)
+        if will_block:
+            tool_name = payload.get("tool_name", "")
+            log(f"pre_tool_call DETECTED blocking: tool={tool_name}")
             return "red_flash"
         return "yellow"
     if event == "transform_llm_output":
