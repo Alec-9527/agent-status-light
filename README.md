@@ -1,37 +1,37 @@
 # 🚦 Agent Status Light
 
-> **Hermes Agent 在干嘛？看一眼桌面的灯就知道。**
+> **Know what your Hermes Agent is doing — at a glance.**
 >
-> 🔴 红灯 = 等你审批 · 🟡 黄灯 = 干活中 · 🟢 绿灯 = 任务完成
+> 🔴 Red = waiting on you · 🟡 Yellow = working · 🟢 Green = done
 
 <br>
 
-## 安装
+## Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Alec-9527/agent-status-light/main/setup.sh | bash
 ```
 
-重启 Hermes。**搞定。**
+Restart Hermes. That's it.
 
-> 前提：你有一盏 USB 三色报警灯（CH341 芯片，淘宝 ¥15-30），并且已经装了 [Hermes Agent](https://github.com/NousResearch/hermes-agent)。
-
-<br>
-
-## 效果
-
-| 你看到 | 灯亮了 | 含义 |
-|--------|:-----:|------|
-| Hermes 弹出审批框 | 🔴 红闪 | 等你确认 |
-| Hermes 问你要选项 | 🔴 红闪 | 等你选择 |
-| Hermes 在跑命令 | 🟡 黄亮 | 工作中 |
-| 任务完成 | 🟢 绿闪 → 常亮 → 灭 | 搞定了 |
+> Requirements: a USB 3-color tower light (CH341 chip, ~$3 on AliExpress) and [Hermes Agent](https://github.com/NousResearch/hermes-agent) installed.
 
 <br>
 
-## 灯的品牌不一样？
+## What the light tells you
 
-编辑 `lamp_config.json`，把命令换成你灯的协议：
+| Hermes is... | Light | Meaning |
+|-------------|:-----:|--------|
+| Asking for command approval | 🔴 flashing | Waiting for you |
+| Asking a clarifying question | 🔴 flashing | Waiting for you |
+| Running tools / thinking | 🟡 solid | Working |
+| Turn finished | 🟢 flash → solid → off | Done |
+
+<br>
+
+## Different lamp?
+
+Edit `lamp_config.json` with your lamp's protocol:
 
 ```json
 {
@@ -48,13 +48,13 @@ curl -fsSL https://raw.githubusercontent.com/Alec-9527/agent-status-light/main/s
 }
 ```
 
-每个命令的格式取决于你的灯协议。然后重新运行 `./setup.sh`。
+Each command is whatever hex string your lamp expects. Re-run `./setup.sh`.
 
-> Modbus、HTTP、GPIO 等协议：把 `hermes_lamp.py` 中的 `send_frame()` 函数换成你的控制逻辑。
+> Modbus, HTTP, GPIO? Replace `send_frame()` in `hermes_lamp.py` — the rest stays the same.
 
 <br>
 
-## 手动安装
+## Manual install
 
 ```bash
 git clone https://github.com/Alec-9527/agent-status-light.git
@@ -62,13 +62,13 @@ cd agent-status-light
 ./setup.sh
 ```
 
-`setup.sh` 做了什么：检测串口 → 测试灯 → 启动 daemon → 配置 Hermes hooks → patch 审批源码。
+`setup.sh` handles: detect serial port → test the light → start daemon → configure Hermes hooks → patch approval/clarify source.
 
 <br>
 
-## 硬件
+## Hardware
 
-关键词：**"USB 三色报警灯"**，芯片 CH341，淘宝/1688 ¥15-30。
+Search: **"USB 3-color alarm light"**, CH341 chip. ~$3 on AliExpress / 1688.
 
 <br>
 
