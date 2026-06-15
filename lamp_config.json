@@ -1,0 +1,17 @@
+{
+    "_comment": "把下面命令换成你灯的协议，然后运行 setup.sh",
+    "serial_port": "/dev/cu.usbserial-1130",
+    "commands": {
+        "off":          "A0 00 00 A0",
+        "yellow":       "A0 01 01 A2",
+        "yellow_flash": "A0 01 02 A3",
+        "green":        "A0 02 01 A3",
+        "green_flash":  "A0 02 02 A4",
+        "red":          "A0 03 01 A4",
+        "red_flash":    "A0 03 02 A5",
+        "beep_off":     "A0 04 00 A4",
+        "beep_on":      "A0 04 01 A5"
+    },
+    "done_flash_seconds": 5,
+    "done_steady_seconds": 25
+}

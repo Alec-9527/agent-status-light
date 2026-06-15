@@ -27,21 +27,42 @@ REQUEST_FILE = HERMES_DIR / "lamp-request.json"
 PID_FILE = HERMES_DIR / "lamp-daemon.pid"
 LOG_FILE = HERMES_DIR / "logs" / "lamp-hook.log"
 
-COMMANDS = {
-    "off": bytes.fromhex("A0 00 00 A0"),
-    "yellow": bytes.fromhex("A0 01 01 A2"),
+# ── Lamp config file (optional) ───────────────────────────────────────
+# If lamp_config.json exists next to this script, it overrides COMMANDS
+# and timing values.  Users never need to edit this file directly.
+
+_DEFAULT_COMMANDS: dict[str, bytes] = {
+    "off":          bytes.fromhex("A0 00 00 A0"),
+    "yellow":       bytes.fromhex("A0 01 01 A2"),
     "yellow_flash": bytes.fromhex("A0 01 02 A3"),
-    "green": bytes.fromhex("A0 02 01 A3"),
-    "green_flash": bytes.fromhex("A0 02 02 A4"),
-    "red": bytes.fromhex("A0 03 01 A4"),
-    "red_flash": bytes.fromhex("A0 03 02 A5"),
-    "beep_off": bytes.fromhex("A0 04 00 A4"),
-    "beep_on": bytes.fromhex("A0 04 01 A5"),
+    "green":        bytes.fromhex("A0 02 01 A3"),
+    "green_flash":  bytes.fromhex("A0 02 02 A4"),
+    "red":          bytes.fromhex("A0 03 01 A4"),
+    "red_flash":    bytes.fromhex("A0 03 02 A5"),
+    "beep_off":     bytes.fromhex("A0 04 00 A4"),
+    "beep_on":      bytes.fromhex("A0 04 01 A5"),
 }
 
-SEQUENCE_MODES = {"done"}
+CONFIG_FILE = Path(__file__).resolve().parent / "lamp_config.json"
+_loaded_commands: dict[str, bytes] = dict(_DEFAULT_COMMANDS)
+
 DONE_FLASH_SECONDS = 5.0
 DONE_STEADY_SECONDS = 25.0
+
+if CONFIG_FILE.exists():
+    try:
+        cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        for name, hexstr in cfg.get("commands", {}).items():
+            if name in _loaded_commands and isinstance(hexstr, str):
+                _loaded_commands[name] = bytes.fromhex(hexstr)
+        DONE_FLASH_SECONDS = float(cfg.get("done_flash_seconds", DONE_FLASH_SECONDS))
+        DONE_STEADY_SECONDS = float(cfg.get("done_steady_seconds", DONE_STEADY_SECONDS))
+    except Exception:
+        pass
+
+COMMANDS = _loaded_commands
+
+SEQUENCE_MODES = {"done"}
 POLL_SECONDS = 0.05
 
 CODING_TOOLS = {
