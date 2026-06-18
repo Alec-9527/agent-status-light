@@ -342,7 +342,7 @@ def _run_done_sequence_aggregated(f, port: str) -> bool:
     """Run done sequence, checking aggregate state between phases.
 
     If a higher-priority signal arrives (e.g. new approval), the sequence
-    is interrupted early.
+    is interrupted early.  On completion, clears done sources from state.
     """
     log(f"starting done sequence: green_flash {DONE_FLASH_SECONDS:g}s -> green {DONE_STEADY_SECONDS:g}s -> off")
     ok = send_mode_on_open_port("green_flash", f, port)
@@ -354,6 +354,13 @@ def _run_done_sequence_aggregated(f, port: str) -> bool:
         log("done sequence interrupted during green steady")
         return ok
     ok = send_mode_on_open_port("off", f, port) and ok
+    # Clear done sources so they don't keep the lamp off after completion
+    state = _read_state()
+    removed = [k for k, v in state.items() if isinstance(v, dict) and v.get("mode") == "done"]
+    for k in removed:
+        del state[k]
+    if removed:
+        _write_state(state)
     log("done sequence completed")
     return ok
 
@@ -458,7 +465,14 @@ def main(argv: list[str]) -> int:
     if len(argv) >= 2:
         # Direct CLI call with hook name or mode: set_state with generic source
         mode = HOOK_NAME_TO_MODE.get(argv[1], argv[1])
-        source = f"direct:{argv[1]}" if argv[1] in HOOK_NAME_TO_MODE else "direct:cli"
+        # pre/post approval pair share the same source key so that
+        # post_approval_response can override the red_flash from pre_approval_request
+        if argv[1] in ("pre_approval_request", "post_approval_response"):
+            source = "direct:approval"
+        elif argv[1] in HOOK_NAME_TO_MODE:
+            source = f"direct:{argv[1]}"
+        else:
+            source = "direct:cli"
         return 0 if set_state(source, mode) else 1
     else:
         # Hook invocation (stdin JSON): use source-keyed state
